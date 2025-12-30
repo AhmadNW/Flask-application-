@@ -1,0 +1,8 @@
+replicaCount: 2
+image:
+  repository: ahmadnw/flask-app # שם האימג' שלך
+  tag: "latest"
+service:
+  type: LoadBalancer # יוצר URL ציבורי
+  port: 80
+  targetPort: 5000
