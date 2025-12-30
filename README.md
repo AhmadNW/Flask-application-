@@ -195,7 +195,7 @@ Helm-based Kubernetes deployments
 
 Immutable Docker images
 
-CI/CD automation
+CI/CD automation : "Note: The CI/CD pipeline is configured to demonstrate the full automation flow. The Deployment step is expected to fail unless an active EKS cluster is provisioned using the provided Terraform code."
 
 Cost-efficient AWS architecture
 
