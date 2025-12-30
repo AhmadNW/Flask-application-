@@ -1,43 +1,61 @@
-name: Terraform Plan Check
+name: CI/CD Flask App
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
-  terraform-plan:
-    name: 'Terraform Plan'
+  build-and-push:
+    name: Build & Push to ECR
     runs-on: ubuntu-latest
-
     steps:
-    # 1. הורדת הקוד מה-Repository
-    - name: Checkout
-      uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-    # 2. התקנת Terraform על המחשב המרוחק של GitHub
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
-      with:
-        terraform_version: 1.5.0
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-    # 3. אתחול (בדיקה שהקבצים תקינים)
-    - name: Terraform Init
-      run: terraform init
-      working-directory: ./terrraform # ודא שזה השם המדויק של התיקייה אצלך
+      # 1. התחברות ל-Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-    # 4. בדיקת פורמט (לוודא שהקוד כתוב יפה)
-    - name: Terraform Format
-      run: terraform fmt -check
-      working-directory: ./terrraform
+      # 2. בניית האימג' ודחיפה (Build & Push)
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: my-flask-app
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-    # 5. הרצת ה-Plan (השלב החשוב ביותר)
-    # כאן ה-Pipeline רק יגיד מה הוא היה עושה, בלי לבצע בפועל
-    - name: Terraform Plan
-      run: terraform plan
-      working-directory: ./terrraform
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_REGION: 'us-east-1' # שנו לאזור שלכם
+  deploy-helm:
+    name: Deploy to EKS with Helm
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # 3. עדכון ה-Kubeconfig כדי להתחבר לקלאסטר (מניח שהקלאסטר קיים)
+      - name: Update KubeConfig
+        run: aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
+
+      # 4. פריסה באמצעות Helm (בלי להקים תשתית טרהפורם)
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install flask-release ./helm/app \
+            --set image.repository=${{ steps.login-ecr.outputs.registry }}/my-flask-app \
+            --set image.tag=${{ github.sha }}
